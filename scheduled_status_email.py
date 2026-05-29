@@ -10,6 +10,7 @@ import ssl
 import sys
 from datetime import datetime, timezone
 from email.message import EmailMessage
+from html import escape
 from typing import Any
 
 from backtest_okx_btc import BAR_MS, NetworkConfig, format_ts
@@ -46,6 +47,10 @@ def direction_text(side: str | None) -> str:
 
 def fmt(value: float | int | None, digits: int = 2) -> str:
     return "--" if value is None else f"{float(value):.{digits}f}"
+
+
+def fmt_pct(value: float | int | None) -> str:
+    return "--" if value is None else f"{float(value):.2f}%"
 
 
 def candle_payload(candle: Any) -> dict[str, Any]:
@@ -169,6 +174,147 @@ def render_reasons(title: str, reasons: list[str]) -> str:
     return "\n".join([f"{title}："] + [f"- {item}" for item in reasons])
 
 
+def html_td(value: Any, *, strong: bool = False, color: str | None = None) -> str:
+    text = escape("--" if value is None else str(value))
+    style = f' style="color:{color};font-weight:700;"' if color else ""
+    if strong:
+        text = f"<strong>{text}</strong>"
+    return f"<td{style}>{text}</td>"
+
+
+def html_th(value: str) -> str:
+    return f"<th>{escape(value)}</th>"
+
+
+def table(headers: list[str], rows: list[list[Any]]) -> str:
+    header_html = "".join(html_th(header) for header in headers)
+    row_html = "\n".join("<tr>" + "".join(html_td(cell) for cell in row) + "</tr>" for row in rows)
+    return f"<table><thead><tr>{header_html}</tr></thead><tbody>{row_html}</tbody></table>"
+
+
+def opportunity_column(opportunity: dict[str, Any], fallback_label: str) -> dict[str, str]:
+    candle = opportunity.get("candle", {})
+    status = "已收盘" if opportunity.get("is_closed") else "未收盘"
+    return {
+        "title": fallback_label,
+        "status": status,
+        "label": str(opportunity.get("label", "--")),
+        "time": str(candle.get("time", "--")),
+        "open": fmt(candle.get("open")),
+        "high": fmt(candle.get("high")),
+        "low": fmt(candle.get("low")),
+        "close": fmt(candle.get("close")),
+        "donchian": f"{fmt(opportunity.get('lower'))} / {fmt(opportunity.get('upper'))}",
+        "ema": fmt(opportunity.get("ema")),
+        "adx": fmt(opportunity.get("adx")),
+        "atr": f"{fmt(opportunity.get('atr'))} ({fmt_pct(opportunity.get('atr_pct'))})",
+        "long_score": str(opportunity.get("long_score", "--")),
+        "short_score": str(opportunity.get("short_score", "--")),
+    }
+
+
+def build_kline_table(confirmed: dict[str, Any], realtime: dict[str, Any]) -> str:
+    previous = opportunity_column(confirmed, "上个已收盘4H")
+    current = opportunity_column(realtime, "当前未收盘4H")
+    rows = [
+        ["K线时间", previous["time"], current["time"]],
+        ["状态", previous["status"], current["status"]],
+        ["信号标签", previous["label"], current["label"]],
+        ["开盘价", previous["open"], current["open"]],
+        ["最高价", previous["high"], current["high"]],
+        ["最低价", previous["low"], current["low"]],
+        ["收盘/当前价", previous["close"], current["close"]],
+        ["唐奇安40 下轨/上轨", previous["donchian"], current["donchian"]],
+        ["EMA180", previous["ema"], current["ema"]],
+        ["ADX14", previous["adx"], current["adx"]],
+        ["ATR14", previous["atr"], current["atr"]],
+        ["多头机会分", previous["long_score"], current["long_score"]],
+        ["空头机会分", previous["short_score"], current["short_score"]],
+    ]
+    return table(["项目", previous["title"], current["title"]], rows)
+
+
+def build_plan_table(plan: dict[str, Any]) -> str:
+    rows = [
+        ["操作建议", "不操作，继续等待收盘确认信号" if plan.get("side") is None else direction_text(plan.get("side"))],
+        ["当前状态", plan.get("status", "--")],
+        ["入场参考", fmt(plan.get("entry_price"))],
+        ["初始止损", fmt(plan.get("stop_price"))],
+        ["3R止盈", fmt(plan.get("take_profit_price"))],
+        ["单笔风险距离", fmt(plan.get("risk"))],
+        ["计划保证金", f"{fmt(plan.get('margin'))}U"],
+        ["名义仓位", f"{fmt(plan.get('notional'))}U"],
+        ["计划数量", f"{fmt(plan.get('qty'), 6)} BTC"],
+    ]
+    return table(["项目", "值"], rows)
+
+
+def reasons_html(title: str, reasons: list[str]) -> str:
+    if not reasons:
+        return f"<h3>{escape(title)}</h3><p>--</p>"
+    items = "".join(f"<li>{escape(item)}</li>" for item in reasons)
+    return f"<h3>{escape(title)}</h3><ul>{items}</ul>"
+
+
+def build_email_html(payload: dict[str, Any]) -> str:
+    if not payload.get("ok", True):
+        return f"""<!doctype html>
+<html><body>
+  <h2>BTC-USDT-SWAP 4H策略状态</h2>
+  <p><strong>更新时间：</strong>{escape(str(payload.get('updated_at', '--')))}</p>
+  <p><strong>扫描失败：</strong>{escape(str(payload.get('error', '--')))}</p>
+  <p>本邮件只做策略提醒，不会自动下单。</p>
+</body></html>"""
+
+    confirmed = payload["confirmed"]
+    realtime = payload["realtime"]
+    plan = payload["plan"]
+    settings = payload.get("settings", {})
+    summary_rows = [
+        ["品种", payload.get("inst_id", "BTC-USDT-SWAP")],
+        ["更新时间", payload.get("updated_at", "--")],
+        ["实时预警", realtime.get("label", "--")],
+        ["收盘确认", confirmed.get("label", "--")],
+        ["操作方向", direction_text(plan.get("side"))],
+        [
+            "参数",
+            f"本金 {fmt(settings.get('initial_equity'))}U / 杠杆 {fmt(settings.get('leverage'), 0)}x / "
+            f"保证金 {fmt((settings.get('margin_pct') or 0) * 100, 0)}% / 最长持仓 {settings.get('max_hold_hours', '--')}小时",
+        ],
+    ]
+    return f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ margin:0; padding:24px; background:#f4f6f5; color:#1f2925; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif; }}
+    .wrap {{ max-width:920px; margin:0 auto; background:#ffffff; border:1px solid #d8ddd8; border-radius:8px; padding:20px; }}
+    h2 {{ margin:0 0 12px; font-size:20px; }}
+    h3 {{ margin:22px 0 8px; font-size:15px; }}
+    table {{ width:100%; border-collapse:collapse; margin:10px 0 18px; font-size:13px; }}
+    th {{ background:#eef1ed; color:#33423b; text-align:left; padding:9px 10px; border:1px solid #d8ddd8; }}
+    td {{ padding:9px 10px; border:1px solid #e5e9e5; vertical-align:top; }}
+    tr:nth-child(even) td {{ background:#fafbf9; }}
+    .notice {{ margin-top:18px; padding:12px; background:#fff7e8; border:1px solid #efd3a3; color:#6f4612; border-radius:6px; }}
+    ul {{ margin-top:8px; padding-left:20px; line-height:1.7; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>{escape(str(payload.get('inst_id', 'BTC-USDT-SWAP')))} 4H策略状态</h2>
+    {table(["摘要", "值"], summary_rows)}
+    <h3>操作计划</h3>
+    {build_plan_table(plan)}
+    <h3>4H K线对比</h3>
+    {build_kline_table(confirmed, realtime)}
+    {reasons_html("上个已收盘4H：多头证据", confirmed.get("long_reasons", []))}
+    {reasons_html("上个已收盘4H：空头证据", confirmed.get("short_reasons", []))}
+    <div class="notice">本邮件只做策略提醒，不会自动下单。交易以“收盘确认”为准，当前未收盘4H只用于盯盘。</div>
+  </div>
+</body>
+</html>"""
+
+
 def build_email_subject(payload: dict[str, Any]) -> str:
     confirmed = payload.get("confirmed", {})
     plan = payload.get("plan", {})
@@ -227,7 +373,7 @@ def env_required(name: str) -> str:
     return value
 
 
-def send_email(subject: str, body: str) -> None:
+def send_email(subject: str, body: str, html_body: str | None = None) -> None:
     smtp_host = env_required("SMTP_HOST")
     smtp_port = int(os.environ.get("SMTP_PORT", "465"))
     smtp_username = env_required("SMTP_USERNAME")
@@ -240,6 +386,8 @@ def send_email(subject: str, body: str) -> None:
     message["From"] = mail_from
     message["To"] = mail_to
     message.set_content(body)
+    if html_body:
+        message.add_alternative(html_body, subtype="html")
 
     if smtp_port == 465:
         context = ssl.create_default_context()
@@ -286,11 +434,12 @@ def main(argv: list[str] | None = None) -> int:
         }
     subject = build_email_subject(payload)
     body = build_email_body(payload)
+    html_body = build_email_html(payload)
     print(subject)
     print()
     print(body)
     if args.send:
-        send_email(subject, body)
+        send_email(subject, body, html_body)
         print("\n邮件已发送。")
     return 0 if payload.get("ok") else 1
 

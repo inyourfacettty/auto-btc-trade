@@ -12,6 +12,17 @@ python scheduled_status_email.py --send
 
 它只会拉 OKX 公开行情、计算 BTC-USDT-SWAP 4H 唐奇安趋势突破策略状态，并把中文报告发送到邮箱。这个工作流不会读取 OKX API Key，也不会自动下单。
 
+邮件正文会优先使用 HTML 表格展示，包含：
+
+```text
+1. 摘要表
+2. 操作计划表
+3. 上个已收盘4H 与 当前未收盘4H 的 K线/指标对比表
+4. 多头证据和空头证据
+```
+
+如果邮箱客户端不支持 HTML，会自动显示纯文本版本。
+
 ## GitHub Secrets
 
 进入仓库：

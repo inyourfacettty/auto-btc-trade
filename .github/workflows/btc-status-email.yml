@@ -1,0 +1,39 @@
+name: BTC strategy status email
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "7 */4 * * *"
+
+jobs:
+  status-email:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: Asia/Shanghai
+      INST_ID: BTC-USDT-SWAP
+      INITIAL_EQUITY: "1000"
+      LEVERAGE: "8"
+      MARGIN_PCT: "0.10"
+      PROXY_MODE: off
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      MAIL_FROM: ${{ secrets.MAIL_FROM }}
+      MAIL_TO: ${{ secrets.MAIL_TO }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run tests
+        run: python -m unittest discover -v
+
+      - name: Send status email
+        run: python scheduled_status_email.py --send

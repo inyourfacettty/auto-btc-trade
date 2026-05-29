@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "7 */4 * * *"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   status-email:
     runs-on: ubuntu-latest
@@ -34,6 +37,17 @@ jobs:
 
       - name: Run tests
         run: python -m unittest discover -v
+
+      - name: Check mail secrets
+        run: |
+          missing=0
+          for name in SMTP_HOST SMTP_PORT SMTP_USERNAME SMTP_PASSWORD MAIL_FROM MAIL_TO; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is missing. Add it in Settings -> Secrets and variables -> Actions."
+              missing=1
+            fi
+          done
+          exit "$missing"
 
       - name: Send status email
         run: python scheduled_status_email.py --send

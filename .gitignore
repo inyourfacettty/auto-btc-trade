@@ -1,0 +1,4 @@
+.env
+data/local_auto_trader_state.json
+__pycache__/
+*.pyc

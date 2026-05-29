@@ -1,0 +1,26 @@
+﻿指标,数值
+交易品种,BTC-USDT-SWAP
+开始时间,2021-05-30 15:00
+结束时间,2026-05-29 15:00
+15mK线数量,175200
+4HK线数量,10949
+信号数量,415
+策略,4H唐奇安趋势_L40_EMA180_ADX22_S2.4_5年固定版_8x_10%
+trades,185
+wins,89
+losses,96
+win_rate,48.11
+return_pct,116.02
+final_equity,2160.18
+max_dd,25.44
+pf,1.36
+avg,6.27
+avg_win,49.59
+avg_loss,-33.89
+best,206.18
+worst,-104.96
+avg_hold,53.35
+max_loss_streak,8
+liq,0
+longs,97
+shorts,88

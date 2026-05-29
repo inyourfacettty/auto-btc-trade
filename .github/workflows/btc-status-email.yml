@@ -3,7 +3,7 @@ name: BTC strategy status email
 on:
   workflow_dispatch:
   schedule:
-    - cron: "7 */4 * * *"
+    - cron: "1 */4 * * *"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"

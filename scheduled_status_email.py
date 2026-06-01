@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from html import escape
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from backtest_okx_btc import BAR_MS, NetworkConfig, format_ts
 from trend_breakout_opportunity_scanner import (
@@ -21,6 +22,8 @@ from trend_breakout_opportunity_scanner import (
     fetch_latest_okx_candles,
     signal_label,
 )
+
+SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def configure_utf8_output() -> None:
@@ -33,8 +36,14 @@ def now_ms() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 
+def format_time_in_shanghai(dt: datetime) -> str:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(SHANGHAI_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+
 def local_now_text() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return format_time_in_shanghai(datetime.now(timezone.utc))
 
 
 def direction_text(side: str | None) -> str:
@@ -261,7 +270,7 @@ def build_email_html(payload: dict[str, Any]) -> str:
         return f"""<!doctype html>
 <html><body>
   <h2>BTC-USDT-SWAP 4H策略状态</h2>
-  <p><strong>更新时间：</strong>{escape(str(payload.get('updated_at', '--')))}</p>
+  <p><strong>更新时间（北京时间）：</strong>{escape(str(payload.get('updated_at', '--')))}</p>
   <p><strong>扫描失败：</strong>{escape(str(payload.get('error', '--')))}</p>
   <p>本邮件只做策略提醒，不会自动下单。</p>
 </body></html>"""
@@ -272,7 +281,7 @@ def build_email_html(payload: dict[str, Any]) -> str:
     settings = payload.get("settings", {})
     summary_rows = [
         ["品种", payload.get("inst_id", "BTC-USDT-SWAP")],
-        ["更新时间", payload.get("updated_at", "--")],
+        ["更新时间（北京时间）", payload.get("updated_at", "--")],
         ["实时预警", realtime.get("label", "--")],
         ["收盘确认", confirmed.get("label", "--")],
         ["操作方向", direction_text(plan.get("side"))],
@@ -328,7 +337,7 @@ def build_email_body(payload: dict[str, Any]) -> str:
     if not payload.get("ok", True):
         return (
             "BTC-USDT-SWAP 4H策略状态\n\n"
-            f"更新时间：{payload.get('updated_at', '--')}\n"
+            f"更新时间（北京时间）：{payload.get('updated_at', '--')}\n"
             f"扫描失败：{payload.get('error', '--')}\n\n"
             "本邮件只做策略提醒，不会自动下单。"
         )
@@ -340,7 +349,7 @@ def build_email_body(payload: dict[str, Any]) -> str:
     return "\n".join(
         [
             f"{payload.get('inst_id', 'BTC-USDT-SWAP')} 4H策略状态",
-            f"更新时间：{payload.get('updated_at', '--')}",
+            f"更新时间（北京时间）：{payload.get('updated_at', '--')}",
             "",
             f"实时预警：{realtime.get('label', '--')}",
             f"收盘确认：{confirmed.get('label', '--')}",
